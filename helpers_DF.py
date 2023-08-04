@@ -110,7 +110,7 @@ def IC_conditions (n,prob,ri,zi,vri,vzi,Pneut,Pmono,Pdim,Ptrim):
     
         # Neutrals-->0 ; Monomers-->1, dimers -->2 ; Trimers -->3
         particles = np.array([0, 1, 2, 3]) 
-        probabilities = np.array([Pmono, Pdim, Ptrim, Pneut])  
+        probabilities = np.array([Pneut,Pmono, Pdim, Ptrim])  
         # Normalizing probabilities (making sure they add up to 1)
         probabilities = probabilities / probabilities.sum()
         # Generate the array
@@ -129,19 +129,6 @@ def IC_conditions (n,prob,ri,zi,vri,vzi,Pneut,Pmono,Pdim,Ptrim):
     masses=np.array([[mass_list[i] for i in list(particle_types)]]).T  # mass of the entire set of particles
     IC=np.column_stack(( init_posvel,particle_types,masses,charges))
     return IC
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -178,7 +165,6 @@ def DF_nbody(dt,N,prob,ri,zi,vri,vzi,Pneut,Pmono,Pdim,Ptrim,softening,k):
     #vel_save = np.ones((N,3,N))*nan
     #vel_save[0,:,0] = vel[0:1]
 
-	#species=np.random.randint(3, size=N)  # Check this one out
 	# Simulation Main Loop
  
     for i in range(1,N):
@@ -189,17 +175,6 @@ def DF_nbody(dt,N,prob,ri,zi,vri,vzi,Pneut,Pmono,Pdim,Ptrim,softening,k):
         #vel_save[:i,:,i] = vel[0:i]
 		
     return species, pos_save 
-
-
-
-
-
-
-
-
- 
-
-
 
 
 
@@ -225,28 +200,30 @@ def animate_injection_2D(species,pos_save):
 	"""
 
 	N=len(species)
-	colors=["forestgreen","navy","fuchsia"]
-	col_list=["forestgreen"]
+	colors=["forestgreen","navy","fuchsia","black"]
 	col_list=[colors [int(i)] for i in list(species[:-1])]
 	fig = plt.figure(figsize=(4,5), dpi=80)
 	grid = plt.GridSpec(1, 1, wspace=0.0, hspace=0.3)
 	ax1 = plt.subplot(grid[0,0])
  
 	xmax=np.nanmax(pos_save[:,0,-1])
-	ymax=np.nanmax(pos_save[:,1,-1])
+	zmax=np.nanmax(pos_save[:,2,-1])
+ 
+	plt.sca(ax1)
+	ax1.set_xlabel('X axis ($\mu m$)')
+	ax1.set_ylabel('Z axis ($\mu m$)')
+	
+ 
 	for i in range(1,N):
-		
-		plt.sca(ax1)
 		plt.cla()
 		plt.title('Number of injected particles: %i' %i, fontsize=10)
 		xx = pos_save[:i,0,i]
-		yy = pos_save[:i,1,i]
-		plt.scatter(xx,yy,s=5,color=col_list[:i])
-		ax1.set(xlim=(-xmax, xmax), ylim=(-1e-7, ymax))
+		zz = pos_save[:i,2,i]
+		plt.scatter(xx*1e6,zz*1e6,s=5,color=col_list[:i])
+		ax1.set(xlim=(-xmax*1e6, xmax*1e6), ylim=(1.7, 5))
 		ax1.set_aspect('equal', 'box')
 		plt.pause(1e-5)
-		ax1.set_xlabel('X axis')
-		ax1.set_ylabel('Y axis')
+
 		
 	return 0
 
@@ -272,7 +249,7 @@ def animate_injection_3D(species,pos_save):
 
 	xmax=np.nanmax(pos_save[:,0,-1])
 	ymax=np.nanmax(pos_save[:,1,-1])
-	zmax=np.nanmax(pos_save[:,1,-1])
+	zmax=np.nanmax(pos_save[:,2,-1])
  
 
 	
@@ -285,14 +262,14 @@ def animate_injection_3D(species,pos_save):
 		xx = pos_save[:i,0,i]
 		yy = pos_save[:i,1,i]
 		zz = pos_save[:i,2,i]
-		ax.scatter(xx,yy,zz,color=col_list[:i])
-		ax.set(xlim=(-zmax, zmax), ylim=(-zmax, zmax),zlim=(0, zmax))
+		ax.scatter(xx*1e6,yy*1e6,zz*1e6,color=col_list[:i])
+		ax.set(xlim=(-xmax*1e6, xmax*1e6), ylim=(-ymax*1e6, ymax*1e6),zlim=(1.7, 1.8))
 		plt.title('Number of injected particles: %i' %i, fontsize=16)
 		plt.legend(handles=[mono_patch, dim_patch,neut_patch])
 		ax.set_aspect('auto', 'box')
-		ax.set_xlabel('X axis')
-		ax.set_ylabel('Y axis')
-		ax.set_zlabel('Z axis')
+		ax.set_xlabel('X axis ($\mu m$)')
+		ax.set_ylabel('Y axis ($\mu m$)')
+		ax.set_zlabel('Z axis ($\mu m$)')
 		#ax.set_xticks([-200,-100,0,100,150,200])
 		#ax.set_yticks([0,100,200,300,400,500,600])
 		ax.view_init(elev=30., azim=35)
