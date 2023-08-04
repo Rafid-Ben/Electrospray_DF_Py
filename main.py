@@ -19,7 +19,7 @@ zi = np.loadtxt('E_field/z.txt')*convert_dist  # z initial condition
 vri = np.loadtxt('E_field/v_r.txt')*convert_vel # vr initial condition
 vzi = np.loadtxt('E_field/v_z.txt')*convert_vel # vz initial condition
 
-N=100
+N=1000
 dt=5e-12
 Pneut=50
 Pmono=50
@@ -31,7 +31,7 @@ Ptrim=50
 
 
 
-species, pos_save = DF_nbody_V2(dt,N,prob,ri,zi,vri,vzi,Pneut,Pmono,Pdim,Ptrim,softening,k)
+species, pos_save = DF_nbody(dt,N,prob,ri,zi,vri,vzi,Pneut,Pmono,Pdim,Ptrim,softening,k)
 #T1= min(timeit.repeat(stmt='DF_nbody(N,dt,softening,k,vy)',\
  #                     timer=time.perf_counter,repeat=3, number=1,globals=globals()) )
 #print("Compute time=",T1,"\n")
