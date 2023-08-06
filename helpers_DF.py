@@ -1,8 +1,9 @@
 import numpy as np
 from numba import njit, prange, float64
 import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
-from cmath import nan
+import matplotlib.patches
+from scipy.spatial import Delaunay
+from scipy.interpolate import LinearNDInterpolator
 
 
 
@@ -57,7 +58,7 @@ def compute_acc_poisson(pos, mass,charge, k, softening):
 
 
 
-def leapfrog_kdk(pos,vel,acc,dt,mass,charge, k, softening):
+def leapfrog_kdk_V1(pos,vel,acc,dt,mass,charge, k, softening):
 	"""Takes the current position, velocity, and acceleration at time t. Then, it carries out
  the leapfrog scheme kick-drift-kick. It then returns the updated position, velocity and accelration
  at time t+dt.
@@ -133,8 +134,88 @@ def IC_conditions (n,prob,ri,zi,vri,vzi,Pneut,Pmono,Pdim,Ptrim):
 
 
 
+
+
+
+
+
+# Add Background Electric Field (Laplace field)
+
+def triangulation (r,z,Er,Ez):
+    points = np.column_stack((r, z))
+    tri = Delaunay(points)
+    E_array= np.vstack((Er.flatten(), Ez.flatten())).T
+    interp=LinearNDInterpolator(tri, E_array, fill_value=np.nan, rescale=False)
+    return interp
+
+
+def interp_lin_delaunay(interp,request_pts):
+    return interp(request_pts)
+
+
+
+def compute_acc_laplace (interp,x,y,z,charge,mass):
+    r = np.sqrt(x**2 + y**2) # convert cartesian to cylindrical
+    request_pts=np.vstack((r,z)).T
+    E_array=interp_lin_delaunay(interp,request_pts) # nx2 array of Er and Ez
+    F_cyl=charge*E_array # nx2 array of Fr and Fz
+    a_lap_cyl=F_cyl/mass  # nx2 array of ar and az
+    #convert cylindrical coordinates to cartesian coordinates
+    a_lap_cart = np.zeros((a_lap_cyl.shape[0], 3)) # define an array for the acceleration in the cartesian coordinates
+    theta =np.arctan2(y, x) # Angle in the cylindrical coordinates formed by the point (x,y)
+    a_lap_cart[:,0]=a_lap_cyl[:,0]*np.cos(theta) # a_cart(x) =a_cyl(r)*cos(theta)
+    a_lap_cart[:,1]=a_lap_cyl[:,0]*np.sin(theta) # a_cart(x) =a_cyl(r)*cos(theta)
+    a_lap_cart[:,2]=a_lap_cyl[:,1] # a_cart(z) =a_cyl(z)
+    return a_lap_cart
+
+
+
+
+
+
+
+
+def leapfrog_kdk_V2(pos,vel,acc,dt,mass,charge, k, softening,interp):
+	"""Takes the current position, velocity, and acceleration at time t. Then, it carries out
+ the leapfrog scheme kick-drift-kick. It then returns the updated position, velocity and accelration
+ at time t+dt.
+ 	Args:
+		pos (np.array of Nx3): _Position x, y, and z of N particles_
+		vel (np.array of Nx3): _Velocity vx, vy, and vz of N particles_
+		acc (np.array of Nx3): _Acceleration ax, ay, and az of N particles_
+		dt (float): _Timestep_
+		mass (np.array of N): _Mass of N particles_
+		k (float, optional): _Coulomb constant_.
+		softening (float): _softening length_
+	Returns:
+		pos (np.array of Nx3): _New position x, y, and z of N particles_
+		vel (np.array of Nx3): _New velocity vx, vy, and vz of N particles_
+		acc (np.array of Nx3): _New acceleration ax, ay, and az of N particles_
+	"""
+	# (1/2) kick 
+	vel += acc * dt/2.0
+	# drift
+	pos += vel * dt
+	# update accelerations
+	acc_poisson = compute_acc_poisson(pos, mass,charge, k, softening )
+	acc_laplace = compute_acc_laplace (interp,pos[:,0],pos[:,1],pos[:,2],charge,mass)
+	acc=acc_poisson+acc_laplace
+	# (1/2) kick
+	vel += acc * dt/2.0
+ 
+	return pos, vel, acc
+
+
+
+
+
+
+
+
+
+
 #@njit(cache=True,fastmath=True,nogil=False)
-def DF_nbody(dt,N,prob,ri,zi,vri,vzi,Pneut,Pmono,Pdim,Ptrim,softening,k):
+def DF_nbody_V1(dt,N,prob,ri,zi,vri,vzi,Pneut,Pmono,Pdim,Ptrim,softening,k):
     """Direct Force computation of the N body problem. The complexity of this algorithm
     is O(N^2)
  
@@ -158,7 +239,7 @@ def DF_nbody(dt,N,prob,ri,zi,vri,vzi,Pneut,Pmono,Pdim,Ptrim,softening,k):
     acc=np.zeros([N,3]) # initial acceleration of all the set of particles
      
 	# pos_save: saves the positions of the particles at each time step
-    pos_save = np.ones((N,3,N))*nan
+    pos_save = np.ones((N,3,N))*np.nan
     pos_save[0,:,0] = pos[0:1]
  
  	#vel_save: saves the velocities of the particles at each time step for computing the energy at each time step
@@ -169,7 +250,7 @@ def DF_nbody(dt,N,prob,ri,zi,vri,vzi,Pneut,Pmono,Pdim,Ptrim,softening,k):
  
     for i in range(1,N):
 		# Run the leapfrog scheme:
-        pos[0:i],vel[0:i],acc[0:i]=leapfrog_kdk(pos[0:i],vel[0:i],acc[0:i],dt,mass[0:i],charge[0:i], k, softening)
+        pos[0:i],vel[0:i],acc[0:i]=leapfrog_kdk_V1(pos[0:i],vel[0:i],acc[0:i],dt,mass[0:i],charge[0:i], k, softening)
   		# save the current position and velocity of the 0 to i particles:
         pos_save[:i,:,i] = pos[0:i]
         #vel_save[:i,:,i] = vel[0:i]
@@ -178,10 +259,48 @@ def DF_nbody(dt,N,prob,ri,zi,vri,vzi,Pneut,Pmono,Pdim,Ptrim,softening,k):
 
 
 
+#@njit(cache=True,fastmath=True,nogil=False)
+def DF_nbody_V2(dt,N,prob,ri,zi,vri,vzi,Pneut,Pmono,Pdim,Ptrim,softening,k,interp):
+    """Direct Force computation of the N body problem. The complexity of this algorithm
+    is O(N^2)
+ 
+    Args:
+		N (_int_): Number of injected particles
+    	dt (_float_): _timestep_
+    	softening (float, optional): _softening parameter_. Defaults to 0.01.
+    	k (float, optional): _Coulomb constant_. Defaults to 8.9875517923*1e9.
+    	vy (float, optional): _velocity in the y direction_. Defaults to 50.0.
+    """
+    IC=IC_conditions (N,prob,ri,zi,vri,vzi,Pneut,Pmono,Pdim,Ptrim)
+    pos=IC[:,0:3]
+    vel=IC[:,3:6]
+    species=IC[:,6]
+    mass=IC[:,7]
+    charge=IC[:,8]
+    
+    mass=mass.reshape(-1, 1)
+    charge=charge.reshape(-1, 1)
+    
+    acc=np.zeros([N,3]) # initial acceleration of all the set of particles
+     
+	# pos_save: saves the positions of the particles at each time step
+    pos_save = np.ones((N,3,N))*np.nan
+    pos_save[0,:,0] = pos[0:1]
+ 
+ 	#vel_save: saves the velocities of the particles at each time step for computing the energy at each time step
+    #vel_save = np.ones((N,3,N))*nan
+    #vel_save[0,:,0] = vel[0:1]
 
-
-
-
+	# Simulation Main Loop
+ 	
+    for i in range(1,N):
+		# Run the leapfrog scheme:
+        pos[0:i],vel[0:i],acc[0:i]=leapfrog_kdk_V2(pos[0:i],vel[0:i],acc[0:i],dt,mass[0:i],charge[0:i], k, softening,interp)
+  		# save the current position and velocity of the 0 to i particles:
+        pos_save[:i,:,i] = pos[0:i]
+        #vel_save[:i,:,i] = vel[0:i]
+		
+    return species, pos_save 
 
 
 
@@ -220,7 +339,7 @@ def animate_injection_2D(species,pos_save):
 		xx = pos_save[:i,0,i]
 		zz = pos_save[:i,2,i]
 		plt.scatter(xx*1e6,zz*1e6,s=5,color=col_list[:i])
-		ax1.set(xlim=(-xmax*1e6, xmax*1e6), ylim=(1.7, 5))
+		ax1.set(xlim=(-xmax*1e6, xmax*1e6), ylim=(1.7, 50))
 		ax1.set_aspect('equal', 'box')
 		plt.pause(1e-5)
 
@@ -263,7 +382,7 @@ def animate_injection_3D(species,pos_save):
 		yy = pos_save[:i,1,i]
 		zz = pos_save[:i,2,i]
 		ax.scatter(xx*1e6,yy*1e6,zz*1e6,color=col_list[:i])
-		ax.set(xlim=(-xmax*1e6, xmax*1e6), ylim=(-ymax*1e6, ymax*1e6),zlim=(1.7, 1.8))
+		ax.set(xlim=(-xmax*1e6, xmax*1e6), ylim=(-ymax*1e6, ymax*1e6),zlim=(1.7, 10))
 		plt.title('Number of injected particles: %i' %i, fontsize=16)
 		plt.legend(handles=[mono_patch, dim_patch,neut_patch])
 		ax.set_aspect('auto', 'box')

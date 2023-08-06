@@ -29,16 +29,10 @@ tri = Delaunay(points)
 
 fig = plt.figure(figsize=(6,8), facecolor='white')
 ax = fig.add_subplot(111, facecolor='black')
-
 ax.triplot(points[:,0]*1e6, points[:,1]*1e6, tri.simplices, color='white', linewidth=0.5,alpha=1)
-
-#plt.tripcolor(points[:,0], points[:,1], tri.simplices.copy())
 ax.scatter(points[:,0]*1e6, points[:,1]*1e6, color='r',marker='.', s=1, alpha=0.1)
-
 ax.set_xlabel('r ($\mu m$)', size=15, color='black')
 ax.set_ylabel('z ($\mu m$)', size=15, color='black')
-# Set the x and y limits to the minimum and maximum of the data
 ax.set_xlim([r.min()*1e6, r.max()*1e6])
 ax.set_ylim([z.min()*1e6, z.max()*1e6])
-
 plt.show()
