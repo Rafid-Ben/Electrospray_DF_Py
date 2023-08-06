@@ -48,5 +48,5 @@ species, pos_save = DF_nbody_V2(dt,N,prob,ri,zi,vri,vzi,Pneut,Pmono,Pdim,Ptrim,s
 #print("Compute time=",T1,"\n")
 
 
-animate_injection_2D(species,pos_save)
+animate_injection_3D(species,pos_save)
 

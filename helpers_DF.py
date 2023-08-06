@@ -1,7 +1,8 @@
 import numpy as np
 from numba import njit, prange, float64
 import matplotlib.pyplot as plt
-import matplotlib.patches
+
+import matplotlib.patches as mpatches
 from scipy.spatial import Delaunay
 from scipy.interpolate import LinearNDInterpolator
 
@@ -382,7 +383,7 @@ def animate_injection_3D(species,pos_save):
 		yy = pos_save[:i,1,i]
 		zz = pos_save[:i,2,i]
 		ax.scatter(xx*1e6,yy*1e6,zz*1e6,color=col_list[:i])
-		ax.set(xlim=(-xmax*1e6, xmax*1e6), ylim=(-ymax*1e6, ymax*1e6),zlim=(1.7, 10))
+		ax.set(xlim=(-xmax*1e6, xmax*1e6), ylim=(-ymax*1e6, ymax*1e6),zlim=(1.7, 100))
 		plt.title('Number of injected particles: %i' %i, fontsize=16)
 		plt.legend(handles=[mono_patch, dim_patch,neut_patch])
 		ax.set_aspect('auto', 'box')
