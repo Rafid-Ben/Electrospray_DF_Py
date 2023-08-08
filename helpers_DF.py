@@ -129,7 +129,7 @@ def IC_conditions (n,prob,ri,zi,vri,vzi,Pneut,Pmono,Pdim,Ptrim):
     charges=np.sign(particle_types)*e2C
     mass_list=np.array([197.973,111.168,309.141,507.114])*amu2kg  # mass in kg: neutral, monomer, dimer, trimer 
     masses=np.array([[mass_list[i] for i in list(particle_types)]]).T  # mass of the entire set of particles
-    IC=np.column_stack(( init_posvel,particle_types,masses,charges))
+    IC=np.column_stack((init_posvel,particle_types,masses,charges))
     return IC
 
 
@@ -273,6 +273,7 @@ def DF_nbody_V2(dt,N,prob,ri,zi,vri,vzi,Pneut,Pmono,Pdim,Ptrim,softening,k,inter
     	vy (float, optional): _velocity in the y direction_. Defaults to 50.0.
     """
     IC=IC_conditions (N,prob,ri,zi,vri,vzi,Pneut,Pmono,Pdim,Ptrim)
+    IC_copy=np.copy(IC)
     pos=IC[:,0:3]
     vel=IC[:,3:6]
     species=IC[:,6]
@@ -301,7 +302,7 @@ def DF_nbody_V2(dt,N,prob,ri,zi,vri,vzi,Pneut,Pmono,Pdim,Ptrim,softening,k,inter
         pos_save[:i,:,i] = pos[0:i]
         #vel_save[:i,:,i] = vel[0:i]
 		
-    return species, pos_save 
+    return species, pos_save , IC_copy
 
 
 
