@@ -102,12 +102,6 @@ def IC_conditions (n,prob,ri,zi,vri,vzi,Pneut,Pmono,Pdim,Ptrim):
 
 
 
-
-
-
-
-
-
 # Add Background Electric Field (Laplace field)
 
 def triangulation (r,z,Er,Ez):
@@ -123,7 +117,10 @@ def interp_lin_delaunay(interp,request_pts):
 
 
 
-def compute_acc_laplace (interp,x,y,z,mass,charge):
+def compute_acc_laplace (interp,pos,mass,charge):
+    x = pos[:,0].copy()
+    y = pos[:,1].copy()
+    z = pos[:,2].copy()
     r = np.sqrt(x**2 + y**2) # convert cartesian to cylindrical
     request_pts=np.vstack((r,z)).T
     E_array=interp_lin_delaunay(interp,request_pts) # nx2 array of Er and Ez
@@ -167,7 +164,7 @@ def leapfrog_kdk(pos,vel,acc,dt,mass,charge, k, softening,interp):
 	pos += vel * dt
 	# update accelerations
 	acc_poisson = compute_acc_poisson(pos, mass,charge, k, softening )
-	acc_laplace = compute_acc_laplace (interp,pos[:,0],pos[:,1],pos[:,2],mass,charge)
+	acc_laplace = compute_acc_laplace (interp,pos,mass,charge)
 	acc=acc_poisson+acc_laplace
 	# (1/2) kick
 	vel += acc * dt/2.0
