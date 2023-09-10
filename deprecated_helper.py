@@ -77,3 +77,49 @@ def DF_nbody(N,dt,softening,k,vy):
 		
     return species, pos_save 
 
+
+
+def DF_nbody2(dt,N,prob,ri,zi,vri,vzi,Pneut,Pmono,Pdim,Ptrim,softening,k,interp):
+    """Direct Force computation of the N body problem. The complexity of this algorithm
+    is O(N^2)
+ 
+    Args:
+		N (_int_): Number of injected particles
+    	dt (_float_): _timestep_
+    	softening (float, optional): _softening parameter_. Defaults to 0.01.
+    	k (float, optional): _Coulomb constant_. Defaults to 8.9875517923*1e9.
+    	vy (float, optional): _velocity in the y direction_. Defaults to 50.0.
+    """
+    IC=IC_conditions (N,prob,ri,zi,vri,vzi,Pneut,Pmono,Pdim,Ptrim)
+    IC_copy=np.copy(IC)
+    pos=IC[:,0:3]
+    vel=IC[:,3:6]
+    species=IC[:,6]
+    mass=IC[:,7]
+    charge=IC[:,8]
+    
+    mass=mass.reshape(-1, 1)
+    charge=charge.reshape(-1, 1)
+    
+    acc=np.zeros([N,3]) # initial acceleration of all the set of particles
+     
+	# pos_save: saves the positions of the particles at each time step
+    pos_save = np.ones((N,3,N))*np.nan
+    pos_save[0,:,0] = pos[0:1]
+ 
+ 	#vel_save: saves the velocities of the particles at each time step for computing the energy at each time step
+    #vel_save = np.ones((N,3,N))*nan
+    #vel_save[0,:,0] = vel[0:1]
+
+	# Simulation Main Loop
+    current_step=0
+    for i in range(1,N):
+		# Run the leapfrog scheme:
+        pos[0:i],vel[0:i],acc[0:i]=leapfrog_kdk(pos[0:i],vel[0:i],acc[0:i],dt,mass[0:i],charge[0:i], k, softening,interp,current_step)
+  		# save the current position and velocity of the 0 to i particles:
+        pos_save[:i,:,i] = pos[0:i]
+        #vel_save[:i,:,i] = vel[0:i]
+        current_step += 1
+		
+    return species, pos_save , IC_copy
+
