@@ -29,7 +29,7 @@ z=Field[:,1]*convert_dist
 Er=Field[:,2]*convert_E
 Ez=Field[:,3]*convert_E
 
-N=100
+N=1000
 dt=5e-12
 Pneut=0
 Pmono=50
@@ -48,5 +48,5 @@ species, pos_save,IC = DF_nbody(dt,N,prob,ri,zi,vri,vzi,Pneut,Pmono,Pdim,Ptrim,s
 #print("Compute time=",T1,"\n")
 
 
-animate_injection_3D(species,pos_save)
+animate_injection_2D(species,pos_save)
 
