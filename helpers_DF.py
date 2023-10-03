@@ -242,8 +242,8 @@ def DF_nbody(dt,N,prob,ri,zi,vri,vzi,Pneut,Pmono,Pdim,Ptrim,softening,k,interp):
     pos_save[0] = pos[0:1]
  
  	#vel_save: saves the velocities of the particles at each time step for computing the energy at each time step
-    #vel_save = np.ones((N,3,N))*nan
-    #vel_save[0,:,0] = vel[0:1]
+    #vel_save = np.empty(N, dtype=object)
+    #vel_save[0] = vel[0:1]
 
 	# Simulation Main Loop
     current_step=0
@@ -296,14 +296,13 @@ def DF_nbody2(dt,N,prob,ri,zi,vri,vzi,Pneut,Pmono,Pdim,Ptrim,softening,k,interp)
      
 	# pos_save: saves the positions of the particles at each time step per chunk of 100 steps
     chunk=100
-    pos_save = np.empty(chunk, dtype=object)
-    #pos_save[0] = np.copy(pos[0:1]) 
+    data_save = np.empty(chunk, dtype=object) 
     
-    pos_save[0]=np.column_stack((init_species[0:1],np.copy(pos[0:1]))) 
- 
+       
+    #data_save[0]=np.column_stack((idx,init_species[0:1],np.copy(pos[0:1]),fragmentation[0:1])) 
  	#vel_save: saves the velocities of the particles at each time step for computing the energy at each time step
-    #vel_save = np.ones((N,3,N))*nan
-    #vel_save[0,:,0] = vel[0:1]
+    #vel_save = np.empty(N, dtype=object)
+    #vel_save[0] = vel[0:1]
 
 	# Simulation Main Loop 
 
@@ -317,20 +316,20 @@ def DF_nbody2(dt,N,prob,ri,zi,vri,vzi,Pneut,Pmono,Pdim,Ptrim,softening,k,interp)
         fragmentation=np.append(fragmentation,0)
         
   		# save the current position and velocity of the 0 to i particles        
-        pos_save[np.mod(current_step,chunk)] = np.column_stack((idx[1:],species[0:i],np.copy(pos[0:i]),fragmentation[0:i])) 
+        data_save[np.mod(current_step,chunk)] = np.column_stack((idx[1:],species[0:i],np.copy(pos[0:i]),fragmentation[0:i])) 
         #vel_save[:i,:,i] = vel[0:i]
         
         # Save positions every 100 steps
         if np.mod(current_step,chunk) == chunk-1:
-            filename = f"position_data/positions_step_{current_step-chunk+1}_to_{current_step}.npy"
-            np.save(filename, pos_save)
+            filename = f"sim_data/positions_step_{current_step-chunk+1}_to_{current_step}.npy"
+            np.save(filename, data_save)
             # Clear pos_save but keep the last position for the next iteration
-            pos_save = np.empty(chunk, dtype=object)
+            data_save = np.empty(chunk, dtype=object)
             
 
         
 		
-    return species, pos_save, IC_copy
+    return species, data_save, IC_copy
 
 
 
