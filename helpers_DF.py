@@ -5,7 +5,8 @@ import matplotlib.patches as mpatches
 from matplotlib import colors as mcolors
 from scipy.spatial import Delaunay
 from scipy.interpolate import LinearNDInterpolator
-
+import os
+import h5py
 
 
 @njit('(float64[:,:], float64[:,:], float64[:,:],float64, float64)', cache=True, fastmath=True, parallel=True)
@@ -199,6 +200,12 @@ def leapfrog_kdk(pos, vel, acc, dt, mass, charge, k, softening, interp, current_
 
 
 
+def prob_frag_compute(data):
+    
+    return
+
+
+
 
 
 
@@ -249,6 +256,101 @@ def DF_nbody(dt,N,prob,ri,zi,vri,vzi,Pneut,Pmono,Pdim,Ptrim,softening,k,interp):
         current_step += 1
 		
     return species, pos_save, IC_copy
+
+
+
+
+
+
+
+
+def DF_nbody2(dt,N,prob,ri,zi,vri,vzi,Pneut,Pmono,Pdim,Ptrim,softening,k,interp):
+    """Direct Force computation of the N body problem. The complexity of this algorithm
+    is O(N^2)
+ 
+    Args:
+		N (_int_): Number of injected particles
+    	dt (_float_): _timestep_
+    	softening (float, optional): _softening parameter_. Defaults to 0.01.
+    	k (float, optional): _Coulomb constant_. Defaults to 8.9875517923*1e9.
+    	vy (float, optional): _velocity in the y direction_. Defaults to 50.0.
+    """
+    IC=IC_conditions (N,prob,ri,zi,vri,vzi,Pneut,Pmono,Pdim,Ptrim)
+    IC_copy=np.copy(IC)
+    pos=IC[:,0:3]
+    vel=IC[:,3:6]
+    init_species=IC[:,6]
+    mass=IC[:,7]
+    charge=IC[:,8]
+    mass=mass.reshape(-1, 1)
+    charge=charge.reshape(-1, 1)
+    
+    
+    idx=np.array([0])
+    species=np.copy(init_species[0:1])
+    fragmentation=np.array([0])
+    
+    
+    
+    acc=np.zeros([N,3]) # initial acceleration of all the set of particles
+     
+	# pos_save: saves the positions of the particles at each time step per chunk of 100 steps
+    chunk=100
+    pos_save = np.empty(chunk, dtype=object)
+    #pos_save[0] = np.copy(pos[0:1]) 
+    
+    pos_save[0]=np.column_stack((init_species[0:1],np.copy(pos[0:1]))) 
+ 
+ 	#vel_save: saves the velocities of the particles at each time step for computing the energy at each time step
+    #vel_save = np.ones((N,3,N))*nan
+    #vel_save[0,:,0] = vel[0:1]
+
+	# Simulation Main Loop 
+
+    for i in range(1,N):
+        current_step=i-1
+		# Run the leapfrog scheme:
+        pos[0:i],vel[0:i],acc[0:i]=leapfrog_kdk(pos[0:i],vel[0:i],acc[0:i],dt,mass[0:i],charge[0:i], k, softening,interp,current_step)
+        
+        idx=np.append(idx,np.max(idx)+1)
+        species=np.append(species,init_species[i])
+        fragmentation=np.append(fragmentation,0)
+        
+  		# save the current position and velocity of the 0 to i particles        
+        pos_save[np.mod(current_step,chunk)] = np.column_stack((idx[1:],species[0:i],np.copy(pos[0:i]),fragmentation[0:i])) 
+        #vel_save[:i,:,i] = vel[0:i]
+        
+        # Save positions every 100 steps
+        if np.mod(current_step,chunk) == chunk-1:
+            filename = f"position_data/positions_step_{current_step-chunk+1}_to_{current_step}.npy"
+            np.save(filename, pos_save)
+            # Clear pos_save but keep the last position for the next iteration
+            pos_save = np.empty(chunk, dtype=object)
+            
+
+        
+		
+    return species, pos_save, IC_copy
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
