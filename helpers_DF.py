@@ -46,7 +46,7 @@ def compute_acc_poisson(pos,mass,charge, k, softening):
             dy = y[i] - y[j]
             dz = z[i] - z[j]
             tmp = (dx**2 + dy**2 + dz**2 + softening**2)
-            factor = contig_charge[j] / (tmp * np.sqrt(tmp))
+            factor = contig_charge[j] / (tmp * np.sqrt(tmp)) #think of using charge =1 as a scalar since we are in the positive mode
             ax += dx * factor
             ay += dy * factor
             az += dz * factor
@@ -95,7 +95,7 @@ def IC_conditions (n,prob,ri,zi,vri,vzi,Pneut,Pmono,Pdim,Ptrim):
     e2C= 1.602176634 *1e-19 # converts electron charge to Coulomb
     init_posvel=injection_conditions(n,prob,ri,zi,vri,vzi)
     particle_types=species(n,Pneut,Pmono,Pdim,Ptrim)
-    charges=np.sign(particle_types)*e2C
+    charges=np.heaviside(particle_types, 0)*e2C # charge=0 if particle_type ==0 ; charge=1 if particle type >0
     mass_list=np.array([197.973,111.168,309.141,507.114])*amu2kg  # mass in kg: neutral, monomer, dimer, trimer 
     masses=np.array([[mass_list[i] for i in list(particle_types)]]).T  # mass of the entire set of particles
     IC=np.column_stack((init_posvel,particle_types,masses,charges))
@@ -118,7 +118,33 @@ def interp_lin_delaunay(interp,request_pts):
 
 
 
-def compute_acc_laplace (interp,pos,mass,charge):
+def compute_efield (interp,pos):
+    x = pos[:,0].copy()
+    y = pos[:,1].copy()
+    z = pos[:,2].copy()
+    r = np.sqrt(x**2 + y**2) # convert cartesian to cylindrical
+    request_pts=np.vstack((r,z)).T
+    E_array=interp_lin_delaunay(interp,request_pts) # nx2 array of Er and Ez
+    return E_array
+
+
+
+def compute_acc_laplace (E_array,pos,mass,charge):
+    x = pos[:,0].copy()
+    y = pos[:,1].copy()
+    F_cyl=charge*E_array # nx2 array of Fr and Fz
+    a_lap_cyl=F_cyl/mass  # nx2 array of ar and az
+    #convert cylindrical coordinates to cartesian coordinates
+    a_lap_cart = np.zeros((a_lap_cyl.shape[0], 3)) # define an array for the acceleration in the cartesian coordinates
+    theta =np.arctan2(y, x) # Angle in the cylindrical coordinates formed by the point (x,y)
+    a_lap_cart[:,0]=a_lap_cyl[:,0]*np.cos(theta) # a_cart(x) =a_cyl(r)*cos(theta)
+    a_lap_cart[:,1]=a_lap_cyl[:,0]*np.sin(theta) # a_cart(x) =a_cyl(r)*cos(theta)
+    a_lap_cart[:,2]=a_lap_cyl[:,1] # a_cart(z) =a_cyl(z)
+    return a_lap_cart
+
+
+
+def compute_acc_laplace_V00 (interp,pos,mass,charge):
     x = pos[:,0].copy()
     y = pos[:,1].copy()
     z = pos[:,2].copy()
@@ -159,16 +185,26 @@ def leapfrog_kdk(pos, vel, acc, dt, mass, charge, k, softening, interp, current_
         acc (np.array of Nx3): New acceleration ax, ay, and az of N particles.
     """
     
+    E_array=compute_efield (interp,pos)
+    
     # Mask for particles with z <= 5e-6
     mask1 = pos[:,2] <= 5e-6
     # Mask for particles with 5e-6 < z <= 250e-6
     mask2 = (pos[:,2] > 5e-6) & (pos[:,2] <= 250e-6)
     # Mask for particles with z > 250e-6
     mask3 = pos[:,2] > 250e-6
-    
     # Mask for region 1 and 2
     mask12=mask1 | mask2
     
+    
+    #print("mask1 shape:", mask1.shape)
+    #print("mask2 shape:", mask2.shape)
+    #print("mask12 shape:", mask12.shape)
+    #print("pos shape:", pos.shape)
+    #print("vel shape:", vel.shape)
+    #print("acc shape:", acc.shape)
+    #print("----")
+
     
     # (1/2) kick for particles with z <= 5e-6 or 5e-6 < z <= 250e-6
     vel[mask12] += acc[mask12] * dt/2.0
@@ -178,7 +214,8 @@ def leapfrog_kdk(pos, vel, acc, dt, mass, charge, k, softening, interp, current_
     
     # Update accelerations for particles with z <= 5e-6
     acc_poisson1 = compute_acc_poisson(pos[mask1], mass[mask1], charge[mask1], k, softening)
-    acc_laplace1 = compute_acc_laplace(interp, pos[mask1], mass[mask1], charge[mask1])
+    #acc_laplace1 = compute_acc_laplace(interp, pos[mask1], mass[mask1], charge[mask1])
+    acc_laplace1 = compute_acc_laplace(E_array[mask1],pos[mask1], mass[mask1], charge[mask1])
     acc[mask1] = acc_poisson1 + acc_laplace1
     
     # Update accelerations for particles with 5e-6 < z <= 250e-6
@@ -187,7 +224,8 @@ def leapfrog_kdk(pos, vel, acc, dt, mass, charge, k, softening, interp, current_
     else:
         acc_poisson2 = np.zeros_like(pos[mask2])
         
-    acc_laplace2 = compute_acc_laplace(interp, pos[mask2], mass[mask2], charge[mask2])
+    #acc_laplace2 = compute_acc_laplace(interp, pos[mask2], mass[mask2], charge[mask2])
+    acc_laplace2=  compute_acc_laplace(E_array[mask2],pos[mask2], mass[mask2], charge[mask2])
     acc[mask2] = acc_poisson2 + acc_laplace2
     
     # Acceleration is null for particles with z > 250e-6
@@ -196,13 +234,108 @@ def leapfrog_kdk(pos, vel, acc, dt, mass, charge, k, softening, interp, current_
     # (1/2) kick for particles with z <= 5e-6 or 5e-6 < z <= 250e-6
     vel[mask12] += acc[mask12] * dt/2.0
 
-    return pos, vel, acc
+    return pos, vel, acc ,E_array
 
 
 
-def prob_frag_compute(data):
+def prob_frag_compute(species,E_mag,dt):
+    # Neutrals-->0 ;
+    # Primary Monomer-->1,
+    # Primary Dimer -->2 ;
+    # Primary Trimer -->3 ;
+    # Secondary Monomer-->4,
+    # Secondary Dimer -->5 
     
-    return
+    frag=np.zeros_like(E_mag)
+    
+    for i,spec in enumerate(species):
+        
+        if spec==0 or spec==1 or spec==4:
+            #Neutral or Primary Monomer or Secondary Monomer
+            tau=np.inf
+        
+        elif spec==2:
+            #Primary Dimer
+            c3, c2, c1, c0 = -8.3172e-29,1.267e-18,-6.108e-09,9.2724
+            tau=np.exp(c3*E_mag[i]**3 + c2*E_mag[i]**2 + c1*E_mag[i] +c0)* (1e-12)  # ps -> s
+        
+        elif spec==3:
+            #Primary Trimer
+            c3, c2, c1, c0 = -3.5003e-29,7.7858e-19,-5.6108e-09,11.986
+            tau=np.exp(c3*E_mag[i]**3 + c2*E_mag[i]**2 + c1*E_mag[i] +c0)* (1e-12)  # ps -> s
+
+        elif spec==5:
+            #Secondary Dimer
+            c3, c2, c1, c0 = -8.3804e-29,1.2457e-18,-5.7798e-09,8.3065
+            tau=np.exp(c3*E_mag[i]**3 + c2*E_mag[i]**2 + c1*E_mag[i] +c0)* (1e-12)  # ps -> s
+            
+        
+        proba=1-np.exp(-dt/tau)
+        frag[i]=proba
+    
+    return frag
+
+
+
+amu2kg= 1.66053906660 *1e-27 # converts amu to kg
+mass_list=np.array([197.973,111.168,309.141,507.114])*amu2kg  # mass in kg: neutral, monomer, dimer, trimer 
+m_neutral=mass_list[0]
+m_mono=mass_list[1]
+m_dim=mass_list[2]
+m_trim=mass_list[3]
+
+def fragmentation_array(idx,species,masses,charges,pos,vel,acc,frag):
+    # Neutrals-->0 ;
+    # Primary Monomer-->1,
+    # Primary Dimer -->2 ;
+    # Primary Trimer -->3 ;
+    # Secondary Monomer-->4,
+    # Secondary Dimer -->5
+    
+    
+    for i in range(len(frag)):
+        # Generating 1 with a probability of frag[i] and 0 with a probability of 1-frag[i]
+        # 1-> fragmentation; 0-> no fragmentation
+        np.random.seed(0)
+        fragmentation = np.random.choice([1, 0], p=[frag[i], 1-frag[i]])
+        counter=0
+        
+        if fragmentation:
+            
+            counter=counter+1
+            
+            idx=np.append(idx,np.max(idx)+1)
+            species=np.append(species,0)
+            masses=np.append(masses,m_neutral)
+            charges=np.append(charges,0)
+            pos = np.vstack((pos, pos[i]))
+            vel = np.vstack((vel, vel[i]))
+            acc = np.vstack((acc, vel[i]))
+            
+            if species[i]==2:
+                #if primary Dimer
+                species[i]=4 # becomes secondary monomer
+                masses[i]=m_mono
+                
+            elif species[i]==3:
+                #if Trimer
+                species[i]=5 # becomes secondary Dimer
+                masses[i]=m_dim
+                
+            elif species[i]==5:
+                #if Secondary Dimer
+                species[i]=4 # becomes secondary monomer
+                masses[i]=m_mono
+                
+            
+        else:
+            continue
+
+    return idx,species,masses,charges,pos,vel,acc,counter
+
+
+
+
 
 
 
@@ -214,6 +347,126 @@ def prob_frag_compute(data):
 
 
 def DF_nbody(dt,N,prob,ri,zi,vri,vzi,Pneut,Pmono,Pdim,Ptrim,softening,k,interp):
+    """Direct Force computation of the N body problem. The complexity of this algorithm
+    is O(N^2)
+ 
+    Args:
+		N (_int_): Number of injected particles
+    	dt (_float_): _timestep_
+    	softening (float, optional): _softening parameter_. Defaults to 0.01.
+    	k (float, optional): _Coulomb constant_. Defaults to 8.9875517923*1e9.
+    	vy (float, optional): _velocity in the y direction_. Defaults to 50.0.
+    """
+    IC=IC_conditions (N,prob,ri,zi,vri,vzi,Pneut,Pmono,Pdim,Ptrim)
+    IC_copy=np.copy(IC)
+    init_pos=IC[:,0:3]
+    init_vel=IC[:,3:6]
+    init_species=IC[:,6]
+    init_mass=IC[:,7]
+    init_mass=init_mass.reshape(-1, 1)
+    init_charge=IC[:,8]
+    init_charge=init_charge.reshape(-1, 1)
+    init_acc=np.zeros([1,3]) # initial acceleration of all the set of particles
+    
+    
+    idx=np.array([0])
+    species=np.copy(init_species[0:1])
+    masses=np.copy(init_mass[0:1])
+    masses=masses.reshape(-1, 1)
+    
+    charges=np.copy(init_charge[0:1])
+    charges=charges.reshape(-1, 1)
+    
+    pos=np.copy(init_pos[0:1])
+    vel=np.copy(init_vel[0:1])
+    acc=np.copy(init_acc[0:1])
+    
+    counters=np.array([]) #count the number of fragmented molecules at each timestep
+
+    
+    
+    
+     
+	# pos_save: saves the positions of the particles at each time step per chunk of 100 steps
+    chunk=100
+    data_save = np.empty(chunk, dtype=object) 
+    
+       
+    #data_save[0]=np.column_stack((idx,init_species[0:1],np.copy(pos[0:1]),fragmentation[0:1])) 
+ 	#vel_save: saves the velocities of the particles at each time step for computing the energy at each time step
+    #vel_save = np.empty(N, dtype=object)
+    #vel_save[0] = vel[0:1]
+
+	# Simulation Main Loop 
+
+    for i in range(1,N):
+        current_step=i-1
+		# Run the leapfrog scheme:
+        pos,vel,acc,E_array=leapfrog_kdk(pos,vel,acc,dt,masses,charges, k, softening,interp,current_step)
+        
+        E_mag = np.sqrt(E_array[:, 0]**2 + E_array[:, 1]**2)
+        frag=prob_frag_compute(species,E_mag,dt)
+        
+        
+
+        # print("shape of idx: ", np.shape(idx))
+        # print("shape of species: ", np.shape(species))
+        # print("shape of pos: ", np.shape(pos))
+        # print("shape of pos[0:i]: ", np.shape(pos[0:i]))
+        # print("shape of pos[:]: ", np.shape(pos[:]))
+        # print("shape of pos[0:-1]: ", np.shape(pos[0:-1]))
+        # print("shape of vel: ", np.shape(vel))
+        # print("shape of acc: ", np.shape(acc))
+        # print("shape of E_array: ", np.shape(E_array))
+        # print("shape of frag: ", np.shape(frag))
+        # print("-------------------------- ")
+
+
+
+
+  		# save the current position and velocity of the 0 to i particles        
+        data_save[np.mod(current_step,chunk)] = np.column_stack((idx,species,np.copy(pos),np.copy(vel),E_array,frag)) 
+        #vel_save[:i,:,i] = vel[0:i]
+        
+        
+        
+        # Save positions every 100 steps
+        if np.mod(current_step,chunk) == chunk-1:
+            filename = f"sim_data/positions_step_{current_step-chunk+1}_to_{current_step}.npy"
+            np.save(filename, data_save)
+            # Clear pos_save but keep the last position for the next iteration
+            data_save = np.empty(chunk, dtype=object)
+            
+        
+        
+        
+        
+        #Fragmentation
+        idx,species,masses,charges,pos,vel,acc,counter =fragmentation_array(idx,species,masses,charges,pos,vel,acc,10*frag)
+        
+        
+        counters=np.append(counters,counter)
+        
+         # Injection
+        idx=np.append(idx,np.max(idx)+1)
+        species=np.append(species,init_species[i])
+        masses=np.append(masses,init_mass[i])
+        masses=masses.reshape(-1, 1)
+        charges=np.append(charges,init_charge[i])
+        charges=charges.reshape(-1, 1)
+        pos = np.vstack((pos, init_pos[i]))
+        vel = np.vstack((vel, init_vel[i]))
+        acc = np.vstack((acc, init_acc))
+        
+		
+    return species, data_save, IC_copy,counters
+
+
+
+
+
+
+def DF_nbody_V0(dt,N,prob,ri,zi,vri,vzi,Pneut,Pmono,Pdim,Ptrim,softening,k,interp):
     """Direct Force computation of the N body problem. The complexity of this algorithm
     is O(N^2)
  
@@ -257,79 +510,6 @@ def DF_nbody(dt,N,prob,ri,zi,vri,vzi,Pneut,Pmono,Pdim,Ptrim,softening,k,interp):
 		
     return species, pos_save, IC_copy
 
-
-
-
-
-
-
-
-def DF_nbody2(dt,N,prob,ri,zi,vri,vzi,Pneut,Pmono,Pdim,Ptrim,softening,k,interp):
-    """Direct Force computation of the N body problem. The complexity of this algorithm
-    is O(N^2)
- 
-    Args:
-		N (_int_): Number of injected particles
-    	dt (_float_): _timestep_
-    	softening (float, optional): _softening parameter_. Defaults to 0.01.
-    	k (float, optional): _Coulomb constant_. Defaults to 8.9875517923*1e9.
-    	vy (float, optional): _velocity in the y direction_. Defaults to 50.0.
-    """
-    IC=IC_conditions (N,prob,ri,zi,vri,vzi,Pneut,Pmono,Pdim,Ptrim)
-    IC_copy=np.copy(IC)
-    pos=IC[:,0:3]
-    vel=IC[:,3:6]
-    init_species=IC[:,6]
-    mass=IC[:,7]
-    charge=IC[:,8]
-    mass=mass.reshape(-1, 1)
-    charge=charge.reshape(-1, 1)
-    
-    
-    idx=np.array([0])
-    species=np.copy(init_species[0:1])
-    fragmentation=np.array([0])
-    
-    
-    
-    acc=np.zeros([N,3]) # initial acceleration of all the set of particles
-     
-	# pos_save: saves the positions of the particles at each time step per chunk of 100 steps
-    chunk=100
-    data_save = np.empty(chunk, dtype=object) 
-    
-       
-    #data_save[0]=np.column_stack((idx,init_species[0:1],np.copy(pos[0:1]),fragmentation[0:1])) 
- 	#vel_save: saves the velocities of the particles at each time step for computing the energy at each time step
-    #vel_save = np.empty(N, dtype=object)
-    #vel_save[0] = vel[0:1]
-
-	# Simulation Main Loop 
-
-    for i in range(1,N):
-        current_step=i-1
-		# Run the leapfrog scheme:
-        pos[0:i],vel[0:i],acc[0:i]=leapfrog_kdk(pos[0:i],vel[0:i],acc[0:i],dt,mass[0:i],charge[0:i], k, softening,interp,current_step)
-        
-        idx=np.append(idx,np.max(idx)+1)
-        species=np.append(species,init_species[i])
-        fragmentation=np.append(fragmentation,0)
-        
-  		# save the current position and velocity of the 0 to i particles        
-        data_save[np.mod(current_step,chunk)] = np.column_stack((idx[1:],species[0:i],np.copy(pos[0:i]),fragmentation[0:i])) 
-        #vel_save[:i,:,i] = vel[0:i]
-        
-        # Save positions every 100 steps
-        if np.mod(current_step,chunk) == chunk-1:
-            filename = f"sim_data/positions_step_{current_step-chunk+1}_to_{current_step}.npy"
-            np.save(filename, data_save)
-            # Clear pos_save but keep the last position for the next iteration
-            data_save = np.empty(chunk, dtype=object)
-            
-
-        
-		
-    return species, data_save, IC_copy
 
 
 
