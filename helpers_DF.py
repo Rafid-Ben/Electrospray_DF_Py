@@ -9,6 +9,20 @@ import os
 import h5py
 
 
+
+
+amu2kg= 1.66053906660 *1e-27 # converts amu to kg
+mass_list=np.array([197.973,111.168,309.141,507.114])*amu2kg  # mass in kg: neutral, monomer, dimer, trimer 
+m_neutral=mass_list[0]
+m_mono=mass_list[1]
+m_dim=mass_list[2]
+m_trim=mass_list[3]
+
+
+
+
+
+
 @njit('(float64[:,:], float64[:,:], float64[:,:],float64, float64)', cache=True, fastmath=True, parallel=True)
 def compute_acc_poisson(pos,mass,charge, k, softening):
     """ Computes the Acceleration of N bodies
@@ -187,12 +201,17 @@ def leapfrog_kdk(pos, vel, acc, dt, mass, charge, k, softening, interp, current_
     
     E_array=compute_efield (interp,pos)
     
+    
+    
+    # Mask for particles whose mass is not m_neutral
+    mask_neutral = mass[:, 0] != m_neutral  # Assuming masses is a 2D column vector
+    
     # Mask for particles with z <= 5e-6
-    mask1 = pos[:,2] <= 5e-6
+    mask1 = (pos[:,2] <= 5e-6) & mask_neutral
     # Mask for particles with 5e-6 < z <= 250e-6
-    mask2 = (pos[:,2] > 5e-6) & (pos[:,2] <= 250e-6)
+    mask2 = (pos[:,2] > 5e-6) & (pos[:,2] <= 250e-6) & mask_neutral
     # Mask for particles with z > 250e-6
-    mask3 = pos[:,2] > 250e-6
+    mask3 = (pos[:,2] > 250e-6) & mask_neutral
     # Mask for region 1 and 2
     mask12=mask1 | mask2
     
@@ -238,7 +257,13 @@ def leapfrog_kdk(pos, vel, acc, dt, mass, charge, k, softening, interp, current_
 
 
 
+
+
+
+@njit(float64[:](float64[:, :], float64[:], float64), cache=True, fastmath=True, parallel=True)
 def prob_frag_compute(species,E_mag,dt):
+    # dt is the timestep
+    
     # Neutrals-->0 ;
     # Primary Monomer-->1,
     # Primary Dimer -->2 ;
@@ -246,9 +271,16 @@ def prob_frag_compute(species,E_mag,dt):
     # Secondary Monomer-->4,
     # Secondary Dimer -->5 
     
-    frag=np.zeros_like(E_mag)
     
-    for i,spec in enumerate(species):
+    # Ensure species is a contiguous 1D array (cheap operation)
+    assert species.shape[1] == 1
+    contig_species = species[:,0].copy()
+    
+    frag=np.zeros_like(contig_species)
+    
+    for i in prange(len(contig_species)):
+        
+        spec=contig_species[i]
         
         if spec==0 or spec==1 or spec==4:
             #Neutral or Primary Monomer or Secondary Monomer
@@ -256,17 +288,26 @@ def prob_frag_compute(species,E_mag,dt):
         
         elif spec==2:
             #Primary Dimer
-            c3, c2, c1, c0 = -8.3172e-29,1.267e-18,-6.108e-09,9.2724
+            c3= -8.3172e-29
+            c2= 1.267e-18
+            c1= -6.108e-09
+            c0= 9.2724
             tau=np.exp(c3*E_mag[i]**3 + c2*E_mag[i]**2 + c1*E_mag[i] +c0)* (1e-12)  # ps -> s
         
         elif spec==3:
             #Primary Trimer
-            c3, c2, c1, c0 = -3.5003e-29,7.7858e-19,-5.6108e-09,11.986
+            c3= -3.5003e-29
+            c2= 7.7858e-19
+            c1= -5.6108e-09
+            c0= 11.986
             tau=np.exp(c3*E_mag[i]**3 + c2*E_mag[i]**2 + c1*E_mag[i] +c0)* (1e-12)  # ps -> s
 
         elif spec==5:
             #Secondary Dimer
-            c3, c2, c1, c0 = -8.3804e-29,1.2457e-18,-5.7798e-09,8.3065
+            c3= -8.3804e-29
+            c2= 1.2457e-18
+            c1= -5.7798e-09
+            c0= 8.3065
             tau=np.exp(c3*E_mag[i]**3 + c2*E_mag[i]**2 + c1*E_mag[i] +c0)* (1e-12)  # ps -> s
             
         
@@ -277,14 +318,22 @@ def prob_frag_compute(species,E_mag,dt):
 
 
 
-amu2kg= 1.66053906660 *1e-27 # converts amu to kg
-mass_list=np.array([197.973,111.168,309.141,507.114])*amu2kg  # mass in kg: neutral, monomer, dimer, trimer 
-m_neutral=mass_list[0]
-m_mono=mass_list[1]
-m_dim=mass_list[2]
-m_trim=mass_list[3]
+
+
+
 
 def fragmentation_array(idx,species,masses,charges,pos,vel,acc,frag):
+    
+    '''
+    idx [Nx1 numpy array]: index
+    species [Nx1 numpy array]: species take values {0,1,2,3,4,5}
+    masses [Nx1 numpy array]: masses 
+    charges [Nx1 numpy array]: charges
+    pos [Nx3 numpy array]: position
+    vel [Nx3 numpy array]: velocity
+    acc [Nx3 numpy array]: acceleration
+    frag [Nx1 numpy array]: Probability of fragmentation between 0 and 1
+    '''
     # Neutrals-->0 ;
     # Primary Monomer-->1,
     # Primary Dimer -->2 ;
@@ -293,14 +342,13 @@ def fragmentation_array(idx,species,masses,charges,pos,vel,acc,frag):
     # Secondary Dimer -->5
     
     
+
+    np.random.seed(0)
+    counter=0
     for i in range(len(frag)):
-        # Generating 1 with a probability of frag[i] and 0 with a probability of 1-frag[i]
-        # 1-> fragmentation; 0-> no fragmentation
-        np.random.seed(0)
-        fragmentation = np.random.choice([1, 0], p=[frag[i], 1-frag[i]])
-        counter=0
+              
         
-        if fragmentation:
+        if np.random.rand() < frag[i]:
             
             counter=counter+1
             
@@ -310,7 +358,7 @@ def fragmentation_array(idx,species,masses,charges,pos,vel,acc,frag):
             charges=np.append(charges,0)
             pos = np.vstack((pos, pos[i]))
             vel = np.vstack((vel, vel[i]))
-            acc = np.vstack((acc, vel[i]))
+            acc = np.vstack((acc, acc[i]))
             
             if species[i]==2:
                 #if primary Dimer
@@ -326,10 +374,6 @@ def fragmentation_array(idx,species,masses,charges,pos,vel,acc,frag):
                 #if Secondary Dimer
                 species[i]=4 # becomes secondary monomer
                 masses[i]=m_mono
-                
-            
-        else:
-            continue
 
     return idx,species,masses,charges,pos,vel,acc,counter
 
@@ -371,6 +415,8 @@ def DF_nbody(dt,N,prob,ri,zi,vri,vzi,Pneut,Pmono,Pdim,Ptrim,softening,k,interp):
     
     idx=np.array([0])
     species=np.copy(init_species[0:1])
+    
+    
     masses=np.copy(init_mass[0:1])
     masses=masses.reshape(-1, 1)
     
@@ -382,9 +428,6 @@ def DF_nbody(dt,N,prob,ri,zi,vri,vzi,Pneut,Pmono,Pdim,Ptrim,softening,k,interp):
     acc=np.copy(init_acc[0:1])
     
     counters=np.array([]) #count the number of fragmented molecules at each timestep
-
-    
-    
     
      
 	# pos_save: saves the positions of the particles at each time step per chunk of 100 steps
@@ -405,7 +448,9 @@ def DF_nbody(dt,N,prob,ri,zi,vri,vzi,Pneut,Pmono,Pdim,Ptrim,softening,k,interp):
         pos,vel,acc,E_array=leapfrog_kdk(pos,vel,acc,dt,masses,charges, k, softening,interp,current_step)
         
         E_mag = np.sqrt(E_array[:, 0]**2 + E_array[:, 1]**2)
+        species=species.reshape(-1, 1)
         frag=prob_frag_compute(species,E_mag,dt)
+        
         
         
 
@@ -442,8 +487,7 @@ def DF_nbody(dt,N,prob,ri,zi,vri,vzi,Pneut,Pmono,Pdim,Ptrim,softening,k,interp):
         
         
         #Fragmentation
-        idx,species,masses,charges,pos,vel,acc,counter =fragmentation_array(idx,species,masses,charges,pos,vel,acc,10*frag)
-        
+        idx,species,masses,charges,pos,vel,acc,counter =fragmentation_array(idx,species,masses,charges,pos,vel,acc,frag)
         
         counters=np.append(counters,counter)
         
