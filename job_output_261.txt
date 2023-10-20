@@ -1,0 +1,1 @@
+slurmstepd-cornell1083794: error: *** JOB 261 ON cornell1083794 CANCELLED AT 2023-10-17T14:58:04 ***

@@ -1,13 +1,11 @@
 import numpy as np
-from numba import njit, prange, float64
+from numba import njit, prange, float64 , set_num_threads
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from matplotlib import colors as mcolors
 from scipy.spatial import Delaunay
 from scipy.interpolate import LinearNDInterpolator
 import os
-import h5py
-
 
 
 
@@ -17,9 +15,6 @@ m_neutral=mass_list[0]
 m_mono=mass_list[1]
 m_dim=mass_list[2]
 m_trim=mass_list[3]
-
-
-
 
 
 
@@ -271,12 +266,12 @@ def prob_frag_compute(species,E_mag,dt):
     # Secondary Monomer-->4,
     # Secondary Dimer -->5 
     
-    
     # Ensure species is a contiguous 1D array (cheap operation)
     assert species.shape[1] == 1
     contig_species = species[:,0].copy()
     
     frag=np.zeros_like(contig_species)
+    
     
     for i in prange(len(contig_species)):
         
@@ -311,7 +306,8 @@ def prob_frag_compute(species,E_mag,dt):
             tau=np.exp(c3*E_mag[i]**3 + c2*E_mag[i]**2 + c1*E_mag[i] +c0)* (1e-12)  # ps -> s
             
         
-        proba=1-np.exp(-dt/tau)
+        epsilon=0.1*dt
+        proba=1-np.exp(-dt/(tau+epsilon))
         frag[i]=proba
     
     return frag
@@ -386,10 +382,6 @@ def fragmentation_array(idx,species,masses,charges,pos,vel,acc,frag):
 
 
 
-
-
-
-
 def DF_nbody(dt,N,prob,ri,zi,vri,vzi,Pneut,Pmono,Pdim,Ptrim,softening,k,interp):
     """Direct Force computation of the N body problem. The complexity of this algorithm
     is O(N^2)
@@ -431,10 +423,14 @@ def DF_nbody(dt,N,prob,ri,zi,vri,vzi,Pneut,Pmono,Pdim,Ptrim,softening,k,interp):
     
      
 	# pos_save: saves the positions of the particles at each time step per chunk of 100 steps
-    chunk=100
-    data_save = np.empty(chunk, dtype=object) 
+    chunk=1000
+    data_save = np.empty(1, dtype=object) 
     
-       
+    # Ensure the directory exists
+    if not os.path.exists("sim_data"):
+        os.makedirs("sim_data")
+        
+        
     #data_save[0]=np.column_stack((idx,init_species[0:1],np.copy(pos[0:1]),fragmentation[0:1])) 
  	#vel_save: saves the velocities of the particles at each time step for computing the energy at each time step
     #vel_save = np.empty(N, dtype=object)
@@ -442,6 +438,8 @@ def DF_nbody(dt,N,prob,ri,zi,vri,vzi,Pneut,Pmono,Pdim,Ptrim,softening,k,interp):
 
 	# Simulation Main Loop 
 
+    
+    jj=0
     for i in range(1,N):
         current_step=i-1
 		# Run the leapfrog scheme:
@@ -451,40 +449,33 @@ def DF_nbody(dt,N,prob,ri,zi,vri,vzi,Pneut,Pmono,Pdim,Ptrim,softening,k,interp):
         species=species.reshape(-1, 1)
         frag=prob_frag_compute(species,E_mag,dt)
         
+
+        # Method 1 of saving
+  		# # save the current position and velocity of the 0 to i particles        
+        # data_save[np.mod(current_step,chunk)] = np.column_stack((idx,species,np.copy(pos),np.copy(vel),E_array,frag)) 
         
         
-
-        # print("shape of idx: ", np.shape(idx))
-        # print("shape of species: ", np.shape(species))
-        # print("shape of pos: ", np.shape(pos))
-        # print("shape of pos[0:i]: ", np.shape(pos[0:i]))
-        # print("shape of pos[:]: ", np.shape(pos[:]))
-        # print("shape of pos[0:-1]: ", np.shape(pos[0:-1]))
-        # print("shape of vel: ", np.shape(vel))
-        # print("shape of acc: ", np.shape(acc))
-        # print("shape of E_array: ", np.shape(E_array))
-        # print("shape of frag: ", np.shape(frag))
-        # print("-------------------------- ")
-
-
-
-
-  		# save the current position and velocity of the 0 to i particles        
-        data_save[np.mod(current_step,chunk)] = np.column_stack((idx,species,np.copy(pos),np.copy(vel),E_array,frag)) 
-        #vel_save[:i,:,i] = vel[0:i]
+        # # Save positions every 100 steps in the drive and then clean it
+        # if np.mod(current_step,chunk) == chunk-1:
+        #     filename = f"sim_data/positions_step_{current_step-chunk+1}_to_{current_step}.npy"
+        #     np.save(filename, data_save)
+        #     # Clear pos_save but keep the last position for the next iteration
+        #     data_save = np.empty(chunk, dtype=object)
         
+
+        # Method 2 of saving
         
-        
-        # Save positions every 100 steps
-        if np.mod(current_step,chunk) == chunk-1:
-            filename = f"sim_data/positions_step_{current_step-chunk+1}_to_{current_step}.npy"
+        kstep=15000 # save each kstep
+        if np.mod(current_step,kstep)==0:
+            data_save[0] = np.column_stack((idx,species,np.copy(pos),np.copy(vel),E_array,frag))
+            #jj=jj+1
+            #filename = f"/data/arb399/mirror/home/arb399/DF_Electrospray/sim_data/positions_step_{current_step}.npy"
+            filename = f"sim_data/positions_step_{current_step}.npy"
             np.save(filename, data_save)
-            # Clear pos_save but keep the last position for the next iteration
-            data_save = np.empty(chunk, dtype=object)
-            
         
+
         
-        
+
         
         #Fragmentation
         idx,species,masses,charges,pos,vel,acc,counter =fragmentation_array(idx,species,masses,charges,pos,vel,acc,frag)
@@ -502,6 +493,8 @@ def DF_nbody(dt,N,prob,ri,zi,vri,vzi,Pneut,Pmono,Pdim,Ptrim,softening,k,interp):
         vel = np.vstack((vel, init_vel[i]))
         acc = np.vstack((acc, init_acc))
         
+        
+
 		
     return species, data_save, IC_copy,counters
 
