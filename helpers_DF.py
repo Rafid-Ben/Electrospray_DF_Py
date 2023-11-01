@@ -465,7 +465,7 @@ def DF_nbody(dt,N,prob,ri,zi,vri,vzi,Pneut,Pmono,Pdim,Ptrim,softening,k,interp):
 
         # Method 2 of saving
         
-        kstep=15000 # save each kstep
+        kstep=10000 # save each kstep
         if np.mod(current_step,kstep)==0:
             data_save[0] = np.column_stack((idx,species,np.copy(pos),np.copy(vel),E_array,frag))
             #jj=jj+1
