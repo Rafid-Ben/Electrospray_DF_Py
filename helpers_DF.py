@@ -382,7 +382,7 @@ def fragmentation_array(idx,species,masses,charges,pos,vel,acc,frag):
 
 
 
-def DF_nbody(dt,N,prob,ri,zi,vri,vzi,Pneut,Pmono,Pdim,Ptrim,softening,k,interp):
+def DF_nbody(dt,N,prob,ri,zi,vri,vzi,Pneut,Pmono,Pdim,Ptrim,softening,k,interp,kstep):
     """Direct Force computation of the N body problem. The complexity of this algorithm
     is O(N^2)
  
@@ -392,6 +392,7 @@ def DF_nbody(dt,N,prob,ri,zi,vri,vzi,Pneut,Pmono,Pdim,Ptrim,softening,k,interp):
     	softening (float, optional): _softening parameter_. Defaults to 0.01.
     	k (float, optional): _Coulomb constant_. Defaults to 8.9875517923*1e9.
     	vy (float, optional): _velocity in the y direction_. Defaults to 50.0.
+        kstep: save each kstep
     """
     IC=IC_conditions (N,prob,ri,zi,vri,vzi,Pneut,Pmono,Pdim,Ptrim)
     IC_copy=np.copy(IC)
@@ -465,7 +466,7 @@ def DF_nbody(dt,N,prob,ri,zi,vri,vzi,Pneut,Pmono,Pdim,Ptrim,softening,k,interp):
 
         # Method 2 of saving
         
-        kstep=10000 # save each kstep
+        # save each kstep
         if np.mod(current_step,kstep)==0:
             data_save[0] = np.column_stack((idx,species,np.copy(pos),np.copy(vel),E_array,frag))
             #jj=jj+1
